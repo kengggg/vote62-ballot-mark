@@ -46,7 +46,7 @@ window.BallotConfig = {
 
   // Extra writing detection (stroke-count adaptive)
   MIN_EXPLAINED_INK_RATIO: 0.70,  // Default for multi-stroke (3+)
-  MIN_EXPLAINED_INK_RATIO_SINGLE: 0.55,  // Lenient for 1-stroke with loops
+  MIN_EXPLAINED_INK_RATIO_SINGLE: 0.50,  // Lenient for 1-stroke with loops (50%)
   MIN_EXPLAINED_INK_RATIO_DOUBLE: 0.62,  // Moderate for 2-stroke
 
   // Arm balance (for branchCount = 3 validation)

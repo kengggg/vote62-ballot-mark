@@ -383,7 +383,7 @@ window.BallotValidation = {
 
     if (strokes.length === 1) {
       // Single stroke: lenient (allows natural loops/curves)
-      explainedInkThreshold = BallotConfig.MIN_EXPLAINED_INK_RATIO_SINGLE;  // 55%
+      explainedInkThreshold = BallotConfig.MIN_EXPLAINED_INK_RATIO_SINGLE;  // 50%
     } else if (strokes.length === 2) {
       // Two strokes: moderate (standard crosses)
       explainedInkThreshold = BallotConfig.MIN_EXPLAINED_INK_RATIO_DOUBLE;  // 62%
