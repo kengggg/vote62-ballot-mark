@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Test Recorder - Thai Ballot Validator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Sukhumvit Set', 'Thonburi', 'Leelawadee UI', 'Sarabun', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: linear-gradient(135deg, #e8e8e8 0%, #d4d4d4 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .recorder-container {
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .recorder-header {
+      background: #fefef8;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 16px;
+    }
+
+    .canvas-section {
+      background: #fefef8;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    #ballotCanvas {
+      display: block;
+      width: 100%;
+      max-width: 500px;
+      height: auto;
+      margin: 0 auto 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      cursor: crosshair;
+      touch-action: none;
+      background: white;
+    }
+
+    .canvas-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-bottom: 12px;
+    }
+
+    .btn {
+      padding: 8px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-primary {
+      color: white;
+      background: #2196f3;
+    }
+
+    .btn-primary:hover { background: #1976d2; }
+
+    .btn-secondary {
+      color: #333;
+      background: #e0e0e0;
+    }
+
+    .btn-secondary:hover { background: #d0d0d0; }
+
+    .btn-danger {
+      color: white;
+      background: #f44336;
+    }
+
+    .btn-danger:hover { background: #d32f2f; }
+
+    .result-panel {
+      text-align: center;
+      padding: 12px;
+      background: #f9f9f9;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .result-badge {
+      display: inline-block;
+      padding: 6px 16px;
+      border-radius: 16px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+
+    .result-badge.neutral { background: #e0e0e0; color: #666; }
+    .result-badge.valid { background: #c8e6c9; color: #2e7d32; }
+    .result-badge.invalid { background: #ffcdd2; color: #c62828; }
+
+    .metadata-section {
+      background: #fefef8;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .metadata-section h2 {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #333;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 6px;
+    }
+
+    .form-group input[type="text"],
+    .form-group select,
+    .form-group textarea {
+      width: 100%;
+      padding: 8px 12px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 16px;
+      margin-top: 8px;
+    }
+
+    .radio-group label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: normal;
+    }
+
+    #invalidTypeGroup {
+      margin-top: 12px;
+      display: none;
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .collection-section {
+      background: #fefef8;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .collection-section h2 {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .collection-count {
+      font-size: 14px;
+      color: #666;
+      font-weight: normal;
+    }
+
+    .test-list {
+      list-style: none;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .test-item {
+      padding: 12px;
+      margin-bottom: 8px;
+      background: #f9f9f9;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .test-info {
+      flex: 1;
+    }
+
+    .test-name {
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 4px;
+    }
+
+    .test-meta {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .test-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .btn-small {
+      padding: 4px 12px;
+      font-size: 12px;
+    }
+
+    .export-section {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 32px;
+      color: #999;
+    }
+
+    @media (max-width: 700px) {
+      .recorder-header { padding: 16px; }
+      h1 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="recorder-container">
+    <!-- Header -->
+    <div class="recorder-header">
+      <h1>🧪 Test Recorder</h1>
+      <p class="subtitle">Draw test marks and save them for automated testing</p>
+    </div>
+
+    <!-- Canvas Section -->
+    <div class="canvas-section">
+      <canvas id="ballotCanvas"></canvas>
+
+      <div class="canvas-actions">
+        <button class="btn btn-primary" id="testCurrentBtn">Test Current</button>
+        <button class="btn btn-secondary" id="clearCanvasBtn">Clear Canvas</button>
+      </div>
+
+      <div class="result-panel">
+        <span>Current Validation:</span>
+        <span class="result-badge neutral" id="currentResult">Ready to draw</span>
+      </div>
+    </div>
+
+    <!-- Metadata Section -->
+    <div class="metadata-section">
+      <h2>Test Metadata</h2>
+
+      <div class="form-group">
+        <label for="testName">Test Name *</label>
+        <input type="text" id="testName" placeholder="e.g., Standard X cross (diagonal)" required>
+      </div>
+
+      <div class="form-group">
+        <label>Expected Result *</label>
+        <div class="radio-group">
+          <label>
+            <input type="radio" name="expectedResult" value="valid" checked>
+            Valid
+          </label>
+          <label>
+            <input type="radio" name="expectedResult" value="invalid">
+            Invalid
+          </label>
+        </div>
+      </div>
+
+      <div id="invalidTypeGroup" class="form-group">
+        <label for="invalidType">Invalid Type</label>
+        <select id="invalidType">
+          <option value="blank">Blank (insufficient ink)</option>
+          <option value="outside_box">Outside Box</option>
+          <option value="no_cross">No Cross</option>
+          <option value="multi_mark">Multi Mark</option>
+          <option value="wrong_symbol">Wrong Symbol</option>
+          <option value="extra_writing">Extra Writing</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="testNotes">Notes (optional)</label>
+        <textarea id="testNotes" placeholder="Additional description or context"></textarea>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" id="saveTestBtn" style="flex: 1;">Save to Collection</button>
+      </div>
+    </div>
+
+    <!-- Collection Section -->
+    <div class="collection-section">
+      <h2>
+        Test Collection
+        <span class="collection-count" id="collectionCount">(0/32)</span>
+      </h2>
+
+      <ul class="test-list" id="testList">
+        <li class="empty-state">No tests recorded yet. Draw a mark and save it to get started.</li>
+      </ul>
+
+      <div class="export-section">
+        <button class="btn btn-primary" id="exportBtn">📥 Export All as JSON</button>
+        <button class="btn btn-secondary" id="importBtn">📤 Import JSON</button>
+        <button class="btn btn-danger" id="clearAllBtn">🗑️ Clear All</button>
+      </div>
+      <input type="file" id="importFile" accept=".json" style="display: none;">
+    </div>
+  </div>
+
+  <!-- Load modules in dependency order -->
+  <script src="js/config.js"></script>
+  <script src="js/geometry.js"></script>
+  <script src="js/preprocessing.js"></script>
+  <script src="js/intersection.js"></script>
+  <script src="js/arm-extension.js"></script>
+  <script src="js/topology.js"></script>
+  <script src="js/explained-ink.js"></script>
+  <script src="js/validation.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/input-handler.js"></script>
+  <script src="js/test-recorder.js"></script>
+</body>
+</html>

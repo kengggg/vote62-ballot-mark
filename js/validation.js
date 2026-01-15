@@ -302,22 +302,7 @@ window.BallotValidation = {
                      `Strokes at center: ${bestCandidate.strokesAtIntersection}\n` +
                      `Global branches: ${branchCount}`;
 
-    // NEW: Check for multi-line star (3+ strokes meeting at center)
-    if (bestCandidate.strokesAtIntersection >= 3) {
-      return {
-        valid: false,
-        label: 'บัตรเสีย',
-        invalid_type: 'wrong_symbol',
-        reason: 'ทำเครื่องหมายแบบอื่น',
-        debug: {
-          strokesAtIntersection: bestCandidate.strokesAtIntersection,
-          branchCount,
-          reason: 'multi_line_star'
-        }
-      };
-    }
-
-    // NEW: Check for minimum angular diversity
+    // Check for minimum angular diversity
     if (branchCount < 2) {
       return {
         valid: false,

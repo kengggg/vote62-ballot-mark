@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "createdAt": "",
+  "config": {
+    "LOGICAL_WIDTH": 500,
+    "LOGICAL_HEIGHT": 400,
+    "VOTE_BOX": {"x": 90, "y": 85, "width": 320, "height": 220},
+    "MIN_EXPLAINED_INK_RATIO_SINGLE": 0.50,
+    "MIN_EXPLAINED_INK_RATIO_DOUBLE": 0.62,
+    "MIN_EXPLAINED_INK_RATIO": 0.70
+  },
+  "tests": []
+}

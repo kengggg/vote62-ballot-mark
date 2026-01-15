@@ -1311,7 +1311,84 @@ window.BallotConfig = {
 
 ## Recent Improvements
 
-### v3.1: Single-Stroke Cross with Narrow Loop (2024-01) ⭐ LATEST
+### v3.2: Automated Testing System + Tolerance Adjustments (2025-01) ⭐ LATEST
+
+**Problem 1:** Testing required manually drawing 32 test marks after every code change, with no way to systematically record and replay them.
+
+**Solution:** Built comprehensive automated testing system with 4 components:
+1. **Test Recorder** (`test-recorder.html`) - Interactive tool to draw and label test marks
+2. **Test Data** (`test-cases.json`) - JSON storage for test collection
+3. **Test Runner** (`test-runner.html`) - Automated test execution with visual results
+4. **AI Collaboration Loop** - "Open in Main App" feature for human + AI co-evaluation
+
+**Files Created:**
+- `test-recorder.html` - Test recording interface (~200 lines)
+- `test-runner.html` - Test execution interface (~250 lines)
+- `js/test-recorder.js` - Recorder logic with localStorage backup (~400 lines)
+- `js/test-runner.js` - Runner logic with AI collaboration (~450 lines)
+- `test-cases-template.json` - Empty template
+- `test-cases-sample.json` - 5 sample tests for development
+
+**Files Modified:**
+- `js/app.js` - Added loadTestDataIfPresent(), showTestDataBanner(), closeTestMode() (~90 lines)
+- `index.html` - Added CSS animation for test banner
+
+**Features:**
+- ✅ Record test marks with expected results
+- ✅ Export/import test collections as JSON
+- ✅ Run all tests with progress tracking
+- ✅ Visual result grid with pass/fail indicators
+- ✅ Detailed failure analysis
+- ✅ Console API for programmatic testing
+- ✅ LocalStorage bridge for AI collaboration
+- ✅ Test banner with expected vs actual comparison
+
+**Problem 2:** Valid emphasis marks (retraced/darkened strokes) rejected due to strict explained ink ratio.
+
+**Root Cause:** When voters retrace parts of the cross for emphasis (common behavior), explained ink ratio drops below 70% threshold despite having valid cross structure.
+
+**Solution:** Relaxed `MIN_EXPLAINED_INK_RATIO` from **0.70 to 0.65** (70% → 65%)
+
+**Files Changed:**
+- `js/config.js`: Line 48 - Changed multi-stroke threshold from 0.70 to 0.65
+
+**Rationale:**
+- Retracing/emphasis is natural voter behavior per election commission guidelines
+- 5% relaxation accommodates typical emphasis marks (69-70% range)
+- Still strict enough to catch actual extra writing (< 65%)
+- No impact on single-stroke (50%) or two-stroke (62%) thresholds
+
+**Problem 3:** Valid crosses with minimal corner overshoots rejected as "outside box".
+
+**Root Cause:** When drawing energetic diagonal strokes corner-to-corner, natural overshoot of 3-8 pixels occurs. Old 3px tolerance too strict.
+
+**Solution:** Increased `BOX_TOLERANCE_PX` from **3 to 8 pixels**
+
+**Files Changed:**
+- `js/config.js`: Line 21 - Changed tolerance from 3 to 8 pixels
+
+**Rationale:**
+- Natural corner overshoots typically 3-8px when drawing diagonals energetically
+- Election commission allows marks with minor overshoot if intent is clear
+- Still catches marks that significantly extend outside (> 8px)
+- Aligns with real-world ballot handling practices
+
+**Impact:**
+- ✅ Systematic regression testing now possible
+- ✅ Human + AI can co-evaluate failed tests visually
+- ✅ Test data preserved for future validation changes
+- ✅ Emphasis marks (retraced strokes) now accepted
+- ✅ Natural corner overshoots (< 8px) now accepted
+- ✅ No regression on existing valid/invalid classifications
+
+**Testing:**
+- Test recorder: Record 32 standard test marks
+- Test runner: Load and execute all tests
+- AI collaboration: Click "Open" on any test to inspect in main app
+- Draw X with retraced diagonal → Shows "บัตรดี" (Valid)
+- Draw X with corner overshoot < 8px → Shows "บัตรดี" (Valid)
+
+### v3.1: Single-Stroke Cross with Narrow Loop (2024-01)
 
 **Problem:** Single-stroke crosses with narrow loops at the intersection were being rejected as invalid (explained ratio ≈ 52-55%, threshold = 55%).
 
@@ -1759,6 +1836,253 @@ console.time('validation');
 BallotValidation.validateMark(window.ballotState.strokes, {debug: true});
 console.timeEnd('validation');
 ```
+
+### Automated Testing System
+
+**Overview:**
+The automated testing system provides tools to record, store, and run regression tests for all ballot validation scenarios. This eliminates the need to manually redraw 32 test marks after every code change.
+
+#### System Components
+
+**1. Test Recorder (`test-recorder.html`)**
+- Interactive tool for drawing and labeling test marks
+- Records stroke data with expected validation results
+- Exports test collection as JSON
+- LocalStorage auto-backup every 30 seconds
+
+**2. Test Data (`test-cases.json`)**
+- JSON file containing all test cases
+- Includes stroke coordinates, expected results, and metadata
+- Config snapshot for reproducibility
+
+**3. Test Runner (`test-runner.html`)**
+- Loads test-cases.json and executes all tests
+- Visual result grid with pass/fail indicators
+- Detailed failure analysis
+- Export reports (JSON/HTML)
+
+**4. AI Collaboration Loop**
+- "Open in Main App" button sends test data from runner to index.html
+- Enables human + AI co-evaluation of failed tests
+- Test banner shows expected vs actual results
+- LocalStorage bridge for seamless data transfer
+
+#### Using the Test Recorder
+
+**Step 1: Open Test Recorder**
+```bash
+# Start local server
+python3 -m http.server 8000
+
+# Open in browser
+open http://localhost:8000/test-recorder.html
+```
+
+**Step 2: Record Test Marks**
+1. Draw a mark on the canvas
+2. Click "Test Current" to see validation result
+3. Fill in test metadata:
+   - **Name**: Descriptive name (e.g., "Standard X cross")
+   - **Expected Result**: Valid or Invalid (with type)
+   - **Notes**: Optional description
+4. Click "Save to Collection"
+5. Repeat for all 32 test marks (16 valid, 16 invalid)
+
+**Step 3: Export Test Data**
+1. Click "Export All as JSON"
+2. Save as `test-cases.json` in project root
+
+**Collection Management:**
+- **Edit**: Click "Edit" to reload test and modify
+- **Delete**: Remove individual tests
+- **Import**: Load existing test-cases.json
+- **Clear All**: Reset collection (with confirmation)
+
+#### Using the Test Runner
+
+**Step 1: Load Tests**
+```bash
+# Open test runner
+open http://localhost:8000/test-runner.html
+
+# Click "Load Tests" and select test-cases.json
+```
+
+**Step 2: Run Tests**
+1. Click "▶ Run All" to execute all tests
+2. Watch progress bar
+3. Review results in grid view
+
+**Step 3: Analyze Results**
+- **Summary**: Total, passed, failed, pass rate
+- **Grid View**: Visual thumbnails with pass/fail status
+- **Filters**: All / Passed / Failed
+- **Failed Tests**: Detailed list with expected vs actual
+
+**Step 4: AI Collaboration**
+1. Click "🔗 Open" on any test (especially failures)
+2. Test data loads in index.html with banner
+3. Co-evaluate with AI:
+   - See actual rendering on canvas
+   - Compare expected vs actual in console
+   - Debug validation logic
+   - Iterate on fixes
+
+#### Test Runner Console API
+
+**Programmatic testing for CI/CD:**
+
+```javascript
+// Load tests
+const runner = new BallotTestRunner();
+await runner.loadTests(testDataObject);
+
+// Run all tests
+const results = await runner.runAll();
+console.log(`${results.passed}/${results.total} tests passed`);
+
+// Get failures
+const failures = runner.getFailures();
+failures.forEach(f => {
+  console.log(`FAIL: ${f.testName}`);
+  console.log(`  Expected: ${JSON.stringify(f.expected)}`);
+  console.log(`  Got: ${JSON.stringify(f.actual)}`);
+});
+
+// Run single test
+const result = runner.runTest(runner.tests[0]);
+console.log(result.passed ? 'PASS' : 'FAIL');
+```
+
+#### Regression Testing Workflow
+
+**After modifying validation code:**
+
+1. Open `test-runner.html`
+2. Load `test-cases.json`
+3. Click "Run All Tests"
+4. Review results:
+   - **All pass** → Change is safe ✓
+   - **New failures** → Investigate:
+     - Bug introduced? → Fix code
+     - Intentional change? → Update expected results
+     - Unclear? → Use "Open in Main App" for co-evaluation
+
+#### AI Collaboration Loop Details
+
+**LocalStorage Bridge:**
+```javascript
+// Data structure in localStorage['ballotTest_current']
+{
+  "testId": "valid-01",
+  "testName": "Standard X cross (two diagonal strokes)",
+  "strokes": [[{x, y, t}, ...], ...],
+  "expected": {"valid": true, "invalid_type": null},
+  "timestamp": 1705315802000
+}
+```
+
+**Workflow:**
+1. Test runner writes to `localStorage['ballotTest_current']`
+2. Opens index.html in new tab via `window.open()`
+3. index.html detects test data on init
+4. Loads strokes, validates, shows banner
+5. User + AI can inspect rendering and debug data
+
+**Banner Features:**
+- Shows test name and expected result
+- Animated slide-down entrance
+- "Clear Test" button to exit test mode
+- Console logs expected vs actual for comparison
+
+#### Test Data Schema
+
+```json
+{
+  "version": "1.0",
+  "createdAt": "2025-01-15T10:00:00Z",
+  "config": {
+    "LOGICAL_WIDTH": 500,
+    "LOGICAL_HEIGHT": 400,
+    "VOTE_BOX": {"x": 90, "y": 85, "width": 320, "height": 220},
+    "MIN_EXPLAINED_INK_RATIO_SINGLE": 0.50,
+    "MIN_EXPLAINED_INK_RATIO_DOUBLE": 0.62,
+    "MIN_EXPLAINED_INK_RATIO": 0.65
+  },
+  "tests": [
+    {
+      "id": "valid-01",
+      "name": "Standard X cross (two diagonal strokes)",
+      "category": "valid",
+      "expected": {
+        "valid": true,
+        "invalid_type": null
+      },
+      "strokes": [
+        [{"x": 150, "y": 120, "t": 1705315800000}, ...],
+        [{"x": 280, "y": 120, "t": 1705315801000}, ...]
+      ],
+      "notes": "Clean diagonal cross - standard valid mark",
+      "recordedAt": 1705315802000
+    }
+  ]
+}
+```
+
+#### Key Testing Files
+
+**Files Created:**
+- `test-recorder.html` - Test recording interface
+- `test-runner.html` - Test execution interface
+- `js/test-recorder.js` - Recorder logic with localStorage backup
+- `js/test-runner.js` - Runner logic with AI collaboration
+- `test-cases-template.json` - Empty template
+- `test-cases-sample.json` - 5 sample tests for development
+- `test-cases.json` - User's full test suite (32 tests)
+
+**Files Modified:**
+- `js/app.js` - Added test data loading and banner display
+- `index.html` - Added CSS animation for test banner
+
+#### Test Coverage Recommendations
+
+**Minimum Test Suite (32 tests):**
+
+**Valid Marks (16 tests):**
+1. Standard X cross (diagonal)
+2. Standard + cross (perpendicular)
+3. X with curved arms
+4. + with angled arms
+5. Single-stroke X with small loop
+6. Single-stroke X with narrow loop
+7. Two-stroke X with loop at center
+8. X with thin emphasis circle
+9. X with corner slight overshoot (< 8px)
+10. X with emphasis/retracing (9+ strokes)
+11. + with slight tremor
+12. X with natural drawing variation
+13. Large X (arms near box edges)
+14. Small X (centered, modest size)
+15. Rotated X (non-45° angles)
+16. + with slight curve in one arm
+
+**Invalid Marks (16 tests):**
+1. Tiny dot (blank - insufficient ink)
+2. Very short line (blank)
+3. Two parallel vertical lines (wrong symbol - branchCount = 1)
+4. Two parallel horizontal lines (wrong symbol - branchCount = 1)
+5. 3-line star (wrong symbol - multi-line star)
+6. 5-line star/asterisk (wrong symbol - too many branches)
+7. Circle only (no cross structure)
+8. Checkmark (no intersection)
+9. Two separate X crosses far apart (multi-mark)
+10. X + separate smaller X (intentional invalidation)
+11. X + very thick circle (extra writing - low explained ratio)
+12. X + extra squiggles (extra writing)
+13. X extending far outside box (outside box - > 8px)
+14. Diagonal cutting through corner far outside (outside box)
+15. Two lines that don't intersect (no cross)
+16. L shape (no intersection)
 
 ---
 

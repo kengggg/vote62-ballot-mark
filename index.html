@@ -146,6 +146,21 @@
       cursor: pointer;
     }
 
+    #testDataBanner {
+      animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+      from {
+        transform: translateX(-50%) translateY(-20px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+      }
+    }
+
     @media (max-width: 600px) {
       .ballot-paper {
         padding: 24px 16px;

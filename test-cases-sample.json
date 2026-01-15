@@ -1,0 +1,134 @@
+{
+  "version": "1.0",
+  "createdAt": "2025-01-15T10:00:00Z",
+  "config": {
+    "LOGICAL_WIDTH": 500,
+    "LOGICAL_HEIGHT": 400,
+    "VOTE_BOX": {"x": 90, "y": 85, "width": 320, "height": 220},
+    "MIN_EXPLAINED_INK_RATIO_SINGLE": 0.50,
+    "MIN_EXPLAINED_INK_RATIO_DOUBLE": 0.62,
+    "MIN_EXPLAINED_INK_RATIO": 0.70
+  },
+  "tests": [
+    {
+      "id": "valid-01",
+      "name": "Standard X cross (two diagonal strokes)",
+      "category": "valid",
+      "expected": {
+        "valid": true,
+        "invalid_type": null
+      },
+      "strokes": [
+        [
+          {"x": 150, "y": 120, "t": 1705315800000},
+          {"x": 160, "y": 135, "t": 1705315800100},
+          {"x": 180, "y": 160, "t": 1705315800200},
+          {"x": 210, "y": 195, "t": 1705315800300},
+          {"x": 250, "y": 240, "t": 1705315800400}
+        ],
+        [
+          {"x": 250, "y": 120, "t": 1705315801000},
+          {"x": 235, "y": 140, "t": 1705315801100},
+          {"x": 210, "y": 170, "t": 1705315801200},
+          {"x": 180, "y": 200, "t": 1705315801300},
+          {"x": 150, "y": 240, "t": 1705315801400}
+        ]
+      ],
+      "notes": "Clean diagonal cross - standard valid mark",
+      "recordedAt": 1705315802000
+    },
+    {
+      "id": "valid-02",
+      "name": "Standard + cross (perpendicular strokes)",
+      "category": "valid",
+      "expected": {
+        "valid": true,
+        "invalid_type": null
+      },
+      "strokes": [
+        [
+          {"x": 200, "y": 110, "t": 1705316000000},
+          {"x": 200, "y": 135, "t": 1705316000100},
+          {"x": 200, "y": 170, "t": 1705316000200},
+          {"x": 200, "y": 210, "t": 1705316000300},
+          {"x": 200, "y": 250, "t": 1705316000400}
+        ],
+        [
+          {"x": 130, "y": 180, "t": 1705316001000},
+          {"x": 160, "y": 180, "t": 1705316001100},
+          {"x": 200, "y": 180, "t": 1705316001200},
+          {"x": 240, "y": 180, "t": 1705316001300},
+          {"x": 270, "y": 180, "t": 1705316001400}
+        ]
+      ],
+      "notes": "Vertical and horizontal cross - standard valid mark",
+      "recordedAt": 1705316002000
+    },
+    {
+      "id": "invalid-01",
+      "name": "Tiny dot (insufficient ink)",
+      "category": "invalid",
+      "expected": {
+        "valid": false,
+        "invalid_type": "blank"
+      },
+      "strokes": [
+        [
+          {"x": 200, "y": 180, "t": 1705316200000},
+          {"x": 201, "y": 180, "t": 1705316200010},
+          {"x": 202, "y": 180, "t": 1705316200020}
+        ]
+      ],
+      "notes": "Tiny dot - insufficient ink length, should be rejected as blank",
+      "recordedAt": 1705316200500
+    },
+    {
+      "id": "invalid-02",
+      "name": "Outside box (stroke extends beyond boundary)",
+      "category": "invalid",
+      "expected": {
+        "valid": false,
+        "invalid_type": "outside_box"
+      },
+      "strokes": [
+        [
+          {"x": 50, "y": 100, "t": 1705316400000},
+          {"x": 100, "y": 140, "t": 1705316400100},
+          {"x": 150, "y": 180, "t": 1705316400200}
+        ],
+        [
+          {"x": 150, "y": 100, "t": 1705316401000},
+          {"x": 100, "y": 140, "t": 1705316401100},
+          {"x": 50, "y": 180, "t": 1705316401200}
+        ]
+      ],
+      "notes": "Cross with strokes extending outside vote box boundary",
+      "recordedAt": 1705316402000
+    },
+    {
+      "id": "invalid-03",
+      "name": "Two parallel lines (no intersection)",
+      "category": "invalid",
+      "expected": {
+        "valid": false,
+        "invalid_type": "no_cross"
+      },
+      "strokes": [
+        [
+          {"x": 130, "y": 140, "t": 1705316600000},
+          {"x": 140, "y": 150, "t": 1705316600100},
+          {"x": 160, "y": 170, "t": 1705316600200},
+          {"x": 180, "y": 190, "t": 1705316600300}
+        ],
+        [
+          {"x": 200, "y": 140, "t": 1705316601000},
+          {"x": 210, "y": 150, "t": 1705316601100},
+          {"x": 230, "y": 170, "t": 1705316601200},
+          {"x": 250, "y": 190, "t": 1705316601300}
+        ]
+      ],
+      "notes": "Two parallel diagonal lines - no intersection point",
+      "recordedAt": 1705316602000
+    }
+  ]
+}

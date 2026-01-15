@@ -18,7 +18,7 @@ window.BallotConfig = {
 
   // Drawing & preprocessing
   STROKE_WIDTH_PX: 8,
-  BOX_TOLERANCE_PX: 3,
+  BOX_TOLERANCE_PX: 8,  // Increased to accommodate natural corner overshoots
   RESAMPLE_STEP_PX: 3,
   SIMPLIFY_EPSILON_PX: 3,
   MIN_TOTAL_INK_LENGTH_PX: 30,  // Lowered for blank detection (dot filter)
@@ -45,7 +45,7 @@ window.BallotConfig = {
   MULTI_MARK_MIN_RATIO: 1.0,  // Min 100% of arm length = distinct marks
 
   // Extra writing detection (stroke-count adaptive)
-  MIN_EXPLAINED_INK_RATIO: 0.70,  // Default for multi-stroke (3+)
+  MIN_EXPLAINED_INK_RATIO: 0.65,  // Relaxed for multi-stroke with emphasis (3+)
   MIN_EXPLAINED_INK_RATIO_SINGLE: 0.50,  // Lenient for 1-stroke with loops (50%)
   MIN_EXPLAINED_INK_RATIO_DOUBLE: 0.62,  // Moderate for 2-stroke
 
