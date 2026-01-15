@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>บัตรลงคะแนน - Thai Ballot Validator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Sukhumvit Set', 'Thonburi', 'Leelawadee UI', 'Sarabun', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: linear-gradient(135deg, #e8e8e8 0%, #d4d4d4 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .ballot-container {
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .ballot-paper {
+      background: #fefef8;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1);
+      padding: 32px 24px;
+      width: 100%;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 8px;
+    }
+
+    .instruction {
+      text-align: center;
+      font-size: 15px;
+      color: #4a4a4a;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+
+    #ballotCanvas {
+      display: block;
+      width: 100%;
+      max-width: 500px;
+      height: auto;
+      margin: 0 auto 20px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      cursor: crosshair;
+      touch-action: none;
+      background: white;
+    }
+
+    .result-panel {
+      text-align: center;
+      margin-bottom: 20px;
+      padding: 16px;
+      background: #f9f9f9;
+      border-radius: 6px;
+    }
+
+    .result-label {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+
+    .result-badge {
+      display: inline-block;
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .result-badge.neutral {
+      background: #e0e0e0;
+      color: #666;
+    }
+
+    .result-badge.valid {
+      background: #c8e6c9;
+      color: #2e7d32;
+    }
+
+    .result-badge.invalid {
+      background: #ffcdd2;
+      color: #c62828;
+    }
+
+    .result-reason {
+      font-size: 13px;
+      color: #888;
+      min-height: 18px;
+    }
+
+    #clearBtn {
+      display: block;
+      margin: 0 auto 12px;
+      padding: 10px 32px;
+      font-size: 15px;
+      font-weight: 500;
+      color: white;
+      background: #2196f3;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #clearBtn:hover {
+      background: #1976d2;
+    }
+
+    #clearBtn:active {
+      background: #1565c0;
+    }
+
+    .debug-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      color: #666;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .debug-toggle input {
+      margin-right: 6px;
+      cursor: pointer;
+    }
+
+    @media (max-width: 600px) {
+      .ballot-paper {
+        padding: 24px 16px;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+
+      .instruction {
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="ballot-container">
+    <div class="ballot-paper">
+      <h1>บัตรลงคะแนน</h1>
+      <p class="instruction">ทำเครื่องหมายกากบาท ✕ หรือ + ภายในช่อง</p>
+      <canvas id="ballotCanvas"></canvas>
+      <div class="result-panel">
+        <div class="result-label">ผลการประเมิน:</div>
+        <div class="result-badge neutral" id="resultBadge">รอการทำเครื่องหมาย</div>
+        <div class="result-reason" id="resultReason"></div>
+      </div>
+      <button id="clearBtn">Clear</button>
+      <label class="debug-toggle">
+        <input type="checkbox" id="debugToggle"> Debug
+      </label>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // CONSTANTS & CONFIGURATION
+    // ============================================================
+    const LOGICAL_WIDTH = 500;
+    const LOGICAL_HEIGHT = 400;
+
+    // Vote box geometry (logical pixels)
+    const VOTE_BOX = {
+      x: 90,
+      y: 85,
+      width: 320,
+      height: 220
+    };
+
+    // Configuration parameters
+    const CONFIG = {
+      // Drawing & preprocessing
+      STROKE_WIDTH_PX: 8,
+      BOX_TOLERANCE_PX: 3,
+      RESAMPLE_STEP_PX: 3,
+      SIMPLIFY_EPSILON_PX: 3,
+      MIN_TOTAL_INK_LENGTH_PX: 30,        // Lowered for blank detection (dot filter)
+      MAX_POINTS_TOTAL: 1200,
+
+      // Intersection detection
+      ENDPOINT_EPS_PX: 6,
+      MIN_CROSSING_ANGLE_DEG: 15,
+
+      // 4-arm extension analysis
+      MIN_ARM_EXTENSION_PX: 18,
+      ARM_CORRIDOR_ANGLE_TOL_DEG: 25,
+      ARM_CORRIDOR_DIST_PX: 12,
+
+      // Global topology (star rejection)
+      TOPOLOGY_ANALYSIS_RADIUS_PX: 60,
+      MAX_BRANCHES: 2,                    // Proper X/+ cross has exactly 2 angular directions
+      BRANCH_ANGLE_CLUSTER_TOL_DEG: 30,
+
+      // NEW: Multi-mark detection (scale-adaptive)
+      CROSS_CLUSTER_EPS_PX: 26,                    // Initial clustering radius for intersection points
+      RETRACE_TOLERANCE_RATIO: 0.12,              // Max 12% of arm length = retracing (tremor/dry pen)
+      INTENTIONAL_MIN_RATIO: 0.20,                 // Min 20% of arm length = intentional invalidation
+      MULTI_MARK_MIN_RATIO: 1.0,                   // Min 100% of arm length = distinct marks
+
+      // NEW: Extra writing detection (stroke-count adaptive)
+      MIN_EXPLAINED_INK_RATIO: 0.70,              // Default for multi-stroke (3+)
+      MIN_EXPLAINED_INK_RATIO_SINGLE: 0.55,       // Lenient for 1-stroke with loops
+      MIN_EXPLAINED_INK_RATIO_DOUBLE: 0.62,       // Moderate for 2-stroke
+
+      EVALUATION_DEBOUNCE_MS: 450
+    };
+
+    // ============================================================
+    // CANVAS SETUP
+    // ============================================================
+    const canvas = document.getElementById('ballotCanvas');
+    const ctx = canvas.getContext('2d');
+    const resultBadge = document.getElementById('resultBadge');
+    const resultReason = document.getElementById('resultReason');
+    const clearBtn = document.getElementById('clearBtn');
+    const debugToggle = document.getElementById('debugToggle');
+
+    // High-DPI scaling
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = LOGICAL_WIDTH * dpr;
+    canvas.height = LOGICAL_HEIGHT * dpr;
+    canvas.style.width = LOGICAL_WIDTH + 'px';
+    canvas.style.height = LOGICAL_HEIGHT + 'px';
+    ctx.scale(dpr, dpr);
+
+    // ============================================================
+    // STATE MANAGEMENT
+    // ============================================================
+    let strokes = [];
+    let currentStroke = null;
+    let activePointerId = null;
+    let evaluationTimer = null;
+    let debugData = null;
+
+    // ============================================================
+    // RENDERING FUNCTIONS
+    // ============================================================
+    function drawVoteBox() {
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(VOTE_BOX.x, VOTE_BOX.y, VOTE_BOX.width, VOTE_BOX.height);
+    }
+
+    function clearCanvas() {
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+      drawVoteBox();
+    }
+
+    function redrawAll() {
+      clearCanvas();
+
+      // Redraw all strokes
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = CONFIG.STROKE_WIDTH_PX;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      for (const stroke of strokes) {
+        if (stroke.length < 2) continue;
+        ctx.beginPath();
+        ctx.moveTo(stroke[0].x, stroke[0].y);
+        for (let i = 1; i < stroke.length; i++) {
+          ctx.lineTo(stroke[i].x, stroke[i].y);
+        }
+        ctx.stroke();
+      }
+
+      // Draw debug overlay if enabled
+      if (debugToggle.checked && debugData) {
+        drawDebugOverlay();
+      }
+    }
+
+    function drawDebugOverlay() {
+      if (!debugData) return;
+
+      // Draw cluster centroids
+      if (debugData.clusters) {
+        for (const cluster of debugData.clusters) {
+          const c = cluster.centroid;
+          ctx.fillStyle = cluster.isCrossValid ? 'rgba(0, 255, 0, 0.5)' : 'rgba(255, 100, 0, 0.5)';
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, 8, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      }
+
+      // Draw best cross candidate
+      if (debugData.bestCandidate) {
+        const c = debugData.bestCandidate.point;
+
+        // Draw crossing point
+        ctx.fillStyle = 'red';
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+
+        // Draw 4 arms
+        if (debugData.bestCandidate.extensions) {
+          const ext = debugData.bestCandidate.extensions;
+          ctx.strokeStyle = 'rgba(0, 200, 0, 0.7)';
+          ctx.lineWidth = 2;
+
+          Object.keys(ext).forEach((armLabel, idx) => {
+            const len = ext[armLabel];
+            const angle = debugData.bestCandidate.armAngles[idx];
+            const rad = angle * Math.PI / 180;
+
+            ctx.beginPath();
+            ctx.moveTo(c.x, c.y);
+            ctx.lineTo(
+              c.x + Math.cos(rad) * len,
+              c.y + Math.sin(rad) * len
+            );
+            ctx.stroke();
+          });
+        }
+      }
+
+      // Draw all intersections
+      if (debugData.allIntersections) {
+        ctx.fillStyle = 'rgba(0, 0, 255, 0.5)';
+        for (const pt of debugData.allIntersections) {
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 3, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      }
+
+      // Draw text info
+      if (debugData.info) {
+        ctx.fillStyle = 'black';
+        ctx.font = '11px monospace';
+        const lines = debugData.info.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          ctx.fillText(lines[i], 10, 20 + i * 13);
+        }
+      }
+    }
+
+    // ============================================================
+    // POINTER EVENT HANDLERS
+    // ============================================================
+    function getCanvasPoint(evt) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (evt.clientX - rect.left) * (LOGICAL_WIDTH / rect.width),
+        y: (evt.clientY - rect.top) * (LOGICAL_HEIGHT / rect.height),
+        t: Date.now()
+      };
+    }
+
+    function handlePointerDown(evt) {
+      if (activePointerId !== null) return;
+
+      activePointerId = evt.pointerId;
+      canvas.setPointerCapture(evt.pointerId);
+
+      const pt = getCanvasPoint(evt);
+      currentStroke = [pt];
+
+      evt.preventDefault();
+    }
+
+    function handlePointerMove(evt) {
+      if (evt.pointerId !== activePointerId) return;
+
+      const pt = getCanvasPoint(evt);
+      currentStroke.push(pt);
+
+      // Draw incremental segment
+      if (currentStroke.length >= 2) {
+        const prev = currentStroke[currentStroke.length - 2];
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = CONFIG.STROKE_WIDTH_PX;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(prev.x, prev.y);
+        ctx.lineTo(pt.x, pt.y);
+        ctx.stroke();
+      }
+
+      evt.preventDefault();
+    }
+
+    function handlePointerUp(evt) {
+      if (evt.pointerId !== activePointerId) return;
+
+      canvas.releasePointerCapture(evt.pointerId);
+      activePointerId = null;
+
+      if (currentStroke && currentStroke.length >= 2) {
+        strokes.push(currentStroke);
+        scheduleEvaluation();
+      }
+
+      currentStroke = null;
+      evt.preventDefault();
+    }
+
+    function handlePointerCancel(evt) {
+      if (evt.pointerId !== activePointerId) return;
+
+      canvas.releasePointerCapture(evt.pointerId);
+      activePointerId = null;
+      currentStroke = null;
+
+      evt.preventDefault();
+    }
+
+    // ============================================================
+    // GEOMETRY UTILITIES
+    // ============================================================
+    function dist(p1, p2) {
+      const dx = p1.x - p2.x;
+      const dy = p1.y - p2.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function strokeLength(stroke) {
+      let len = 0;
+      for (let i = 1; i < stroke.length; i++) {
+        len += dist(stroke[i - 1], stroke[i]);
+      }
+      return len;
+    }
+
+    function pointInRect(pt, rect, tolerance = 0) {
+      return pt.x >= rect.x - tolerance &&
+             pt.x <= rect.x + rect.width + tolerance &&
+             pt.y >= rect.y - tolerance &&
+             pt.y <= rect.y + rect.height + tolerance;
+    }
+
+    function segmentMidpoint(seg) {
+      return {
+        x: (seg.p1.x + seg.p2.x) / 2,
+        y: (seg.p1.y + seg.p2.y) / 2
+      };
+    }
+
+    function pointToLineDistance(point, linePoint, lineAngleDeg) {
+      const rad = lineAngleDeg * Math.PI / 180;
+      const dx = point.x - linePoint.x;
+      const dy = point.y - linePoint.y;
+      const vx = Math.cos(rad);
+      const vy = Math.sin(rad);
+      return Math.abs(dx * vy - dy * vx);
+    }
+
+    // ============================================================
+    // PREPROCESSING
+    // ============================================================
+    function resampleStroke(stroke, step) {
+      if (stroke.length < 2) return stroke;
+
+      const resampled = [stroke[0]];
+      let accumulated = 0;
+
+      for (let i = 1; i < stroke.length; i++) {
+        const d = dist(stroke[i - 1], stroke[i]);
+        accumulated += d;
+
+        while (accumulated >= step) {
+          const t = (accumulated - step) / d;
+          const pt = {
+            x: stroke[i].x - t * (stroke[i].x - stroke[i - 1].x),
+            y: stroke[i].y - t * (stroke[i].y - stroke[i - 1].y)
+          };
+          resampled.push(pt);
+          accumulated -= step;
+        }
+      }
+
+      if (dist(resampled[resampled.length - 1], stroke[stroke.length - 1]) > 0.5) {
+        resampled.push(stroke[stroke.length - 1]);
+      }
+
+      return resampled;
+    }
+
+    function simplifyRDP(points, epsilon) {
+      if (points.length < 3) return points;
+
+      let maxDist = 0;
+      let maxIndex = 0;
+      const first = points[0];
+      const last = points[points.length - 1];
+
+      for (let i = 1; i < points.length - 1; i++) {
+        const d = pointToSegmentDist(points[i], first, last);
+        if (d > maxDist) {
+          maxDist = d;
+          maxIndex = i;
+        }
+      }
+
+      if (maxDist > epsilon) {
+        const left = simplifyRDP(points.slice(0, maxIndex + 1), epsilon);
+        const right = simplifyRDP(points.slice(maxIndex), epsilon);
+        return left.slice(0, -1).concat(right);
+      } else {
+        return [first, last];
+      }
+    }
+
+    function pointToSegmentDist(pt, p1, p2) {
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const lenSq = dx * dx + dy * dy;
+
+      if (lenSq === 0) return dist(pt, p1);
+
+      let t = ((pt.x - p1.x) * dx + (pt.y - p1.y) * dy) / lenSq;
+      t = Math.max(0, Math.min(1, t));
+
+      const proj = { x: p1.x + t * dx, y: p1.y + t * dy };
+      return dist(pt, proj);
+    }
+
+    // ============================================================
+    // INTERSECTION DETECTION
+    // ============================================================
+    function findSegmentIntersection(seg1, seg2) {
+      const dx1 = seg1.p2.x - seg1.p1.x;
+      const dy1 = seg1.p2.y - seg1.p1.y;
+      const dx2 = seg2.p2.x - seg2.p1.x;
+      const dy2 = seg2.p2.y - seg2.p1.y;
+
+      const det = dx1 * dy2 - dy1 * dx2;
+      if (Math.abs(det) < 1e-10) return null;
+
+      const t = ((seg2.p1.x - seg1.p1.x) * dy2 - (seg2.p1.y - seg1.p1.y) * dx2) / det;
+      const u = ((seg2.p1.x - seg1.p1.x) * dy1 - (seg2.p1.y - seg1.p1.y) * dx1) / det;
+
+      if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+
+      const ix = seg1.p1.x + t * dx1;
+      const iy = seg1.p1.y + t * dy1;
+
+      // Exclude endpoint touches - but only check ACTUAL stroke endpoints, not RDP intermediate points
+      const nearStrokeEndpoint = (pt) => {
+        return dist(pt, seg1.strokeStart) < CONFIG.ENDPOINT_EPS_PX ||
+               dist(pt, seg1.strokeEnd) < CONFIG.ENDPOINT_EPS_PX ||
+               dist(pt, seg2.strokeStart) < CONFIG.ENDPOINT_EPS_PX ||
+               dist(pt, seg2.strokeEnd) < CONFIG.ENDPOINT_EPS_PX;
+      };
+      if (nearStrokeEndpoint({x: ix, y: iy})) return null;
+
+      // Calculate crossing angle
+      const angle1 = Math.atan2(dy1, dx1);
+      const angle2 = Math.atan2(dy2, dx2);
+      let crossAngle = Math.abs(angle1 - angle2) * 180 / Math.PI;
+      if (crossAngle > 90) crossAngle = 180 - crossAngle;
+
+      if (crossAngle < CONFIG.MIN_CROSSING_ANGLE_DEG) return null;
+
+      // Return WITH segment references
+      return {
+        x: ix,
+        y: iy,
+        angle: crossAngle,
+        seg1: seg1,
+        seg2: seg2
+      };
+    }
+
+    function buildSegments(strokes) {
+      const segments = [];
+      for (let si = 0; si < strokes.length; si++) {
+        const stroke = strokes[si];
+        const strokeStart = stroke[0];
+        const strokeEnd = stroke[stroke.length - 1];
+
+        for (let i = 0; i < stroke.length - 1; i++) {
+          segments.push({
+            p1: stroke[i],
+            p2: stroke[i + 1],
+            strokeIndex: si,
+            segmentIndex: i,
+            length: dist(stroke[i], stroke[i + 1]),
+            strokeStart: strokeStart,  // Store actual stroke endpoints
+            strokeEnd: strokeEnd
+          });
+        }
+      }
+      return segments;
+    }
+
+    function findAllIntersections(segments) {
+      const intersections = [];
+
+      for (let i = 0; i < segments.length; i++) {
+        for (let j = i + 1; j < segments.length; j++) {
+          const seg1 = segments[i];
+          const seg2 = segments[j];
+
+          // Different strokes, or same stroke but non-adjacent
+          if (seg1.strokeIndex !== seg2.strokeIndex ||
+              Math.abs(seg1.segmentIndex - seg2.segmentIndex) > 1) {
+
+            const inter = findSegmentIntersection(seg1, seg2);
+            if (inter && pointInRect(inter, VOTE_BOX)) {
+              intersections.push(inter);
+            }
+          }
+        }
+      }
+
+      return intersections;
+    }
+
+    // ============================================================
+    // 4-ARM EXTENSION ANALYSIS
+    // ============================================================
+    function measure4ArmExtension(P, seg1, seg2, allStrokes) {
+      // Determine the two primary directions
+      const dir1 = Math.atan2(seg1.p2.y - seg1.p1.y, seg1.p2.x - seg1.p1.x);
+      const dir2 = Math.atan2(seg2.p2.y - seg2.p1.y, seg2.p2.x - seg2.p1.x);
+
+      // Normalize to [0, 180)
+      const angle1 = ((dir1 * 180 / Math.PI) % 180 + 180) % 180;
+      const angle2 = ((dir2 * 180 / Math.PI) % 180 + 180) % 180;
+
+      // Define 4 arm directions
+      const armAngles = [
+        angle1,
+        (angle1 + 180) % 360,
+        angle2,
+        (angle2 + 180) % 360
+      ];
+
+      // Measure extension along each arm
+      const extensions = {};
+      const armLabels = ['seg1+', 'seg1-', 'seg2+', 'seg2-'];
+
+      armAngles.forEach((angle, idx) => {
+        const extension = findInkInCorridor(P, angle, allStrokes);
+        extensions[armLabels[idx]] = extension;
+      });
+
+      // Check if all 4 arms meet minimum
+      const minExtension = Math.min(...Object.values(extensions));
+      const valid = minExtension >= CONFIG.MIN_ARM_EXTENSION_PX;
+
+      return {
+        valid: valid,
+        extensions: extensions,
+        minExtension: minExtension,
+        armAngles: armAngles
+      };
+    }
+
+    function findInkInCorridor(P, direction, allStrokes) {
+      const dirRad = direction * Math.PI / 180;
+      const dirVec = { x: Math.cos(dirRad), y: Math.sin(dirRad) };
+
+      let maxDist = 0;
+
+      for (const stroke of allStrokes) {
+        for (let i = 0; i < stroke.length - 1; i++) {
+          const seg = { p1: stroke[i], p2: stroke[i + 1] };
+
+          // Check alignment - segment should be aligned with the line (either direction)
+          const segAngle = Math.atan2(seg.p2.y - seg.p1.y, seg.p2.x - seg.p1.x);
+          const segDir = ((segAngle * 180 / Math.PI) % 360 + 360) % 360;
+
+          // Check alignment with both forward and backward directions of the line
+          const angleDiff1 = Math.min(
+            Math.abs(segDir - direction),
+            360 - Math.abs(segDir - direction)
+          );
+          const angleDiff2 = Math.min(
+            Math.abs(segDir - ((direction + 180) % 360)),
+            360 - Math.abs(segDir - ((direction + 180) % 360))
+          );
+          const angleDiff = Math.min(angleDiff1, angleDiff2);
+
+          if (angleDiff > CONFIG.ARM_CORRIDOR_ANGLE_TOL_DEG) continue;
+
+          // Check perpendicular distance from segment to the ray
+          const mid = segmentMidpoint(seg);
+          const perpDist = pointToLineDistance(mid, P, direction);
+          if (perpDist > CONFIG.ARM_CORRIDOR_DIST_PX) continue;
+
+          // Check both endpoints to see if either is ahead of P in the desired direction
+          // This handles segments that pass through P correctly
+          const vecToP1 = { x: seg.p1.x - P.x, y: seg.p1.y - P.y };
+          const vecToP2 = { x: seg.p2.x - P.x, y: seg.p2.y - P.y };
+
+          const dot1 = vecToP1.x * dirVec.x + vecToP1.y * dirVec.y;
+          const dot2 = vecToP2.x * dirVec.x + vecToP2.y * dirVec.y;
+
+          // If either endpoint is ahead, measure the farthest one
+          if (dot1 > 0 || dot2 > 0) {
+            const dist1 = dot1 > 0 ? dist(P, seg.p1) : 0;
+            const dist2 = dot2 > 0 ? dist(P, seg.p2) : 0;
+            maxDist = Math.max(maxDist, dist1, dist2);
+          }
+        }
+      }
+
+      return maxDist;
+    }
+
+    // ============================================================
+    // GLOBAL TOPOLOGY CHECK
+    // ============================================================
+    function countGlobalBranches(P, allStrokes) {
+      const nearbySegments = [];
+
+      for (const stroke of allStrokes) {
+        for (let i = 0; i < stroke.length - 1; i++) {
+          const seg = { p1: stroke[i], p2: stroke[i + 1] };
+          const mid = segmentMidpoint(seg);
+
+          if (dist(mid, P) <= CONFIG.TOPOLOGY_ANALYSIS_RADIUS_PX) {
+            const angle = Math.atan2(seg.p2.y - seg.p1.y, seg.p2.x - seg.p1.x);
+            const normalized = ((angle * 180 / Math.PI) % 180 + 180) % 180;
+            const length = dist(seg.p1, seg.p2);
+
+            nearbySegments.push({ angle: normalized, weight: length });
+          }
+        }
+      }
+
+      if (nearbySegments.length === 0) return 0;
+
+      const branches = clusterAngles(nearbySegments, CONFIG.BRANCH_ANGLE_CLUSTER_TOL_DEG);
+      return branches.length;
+    }
+
+    function clusterAngles(angleData, tolerance) {
+      if (angleData.length === 0) return [];
+
+      angleData.sort((a, b) => a.angle - b.angle);
+
+      const modes = [];
+      let currentMode = { angle: angleData[0].angle, weight: angleData[0].weight };
+
+      for (let i = 1; i < angleData.length; i++) {
+        const diff = Math.min(
+          Math.abs(angleData[i].angle - currentMode.angle),
+          180 - Math.abs(angleData[i].angle - currentMode.angle)
+        );
+
+        if (diff <= tolerance) {
+          const totalWeight = currentMode.weight + angleData[i].weight;
+          currentMode.angle = (currentMode.angle * currentMode.weight +
+                              angleData[i].angle * angleData[i].weight) / totalWeight;
+          currentMode.weight = totalWeight;
+        } else {
+          modes.push(currentMode);
+          currentMode = { angle: angleData[i].angle, weight: angleData[i].weight };
+        }
+      }
+      modes.push(currentMode);
+
+      // Check wrap-around
+      if (modes.length > 1) {
+        const wrapDiff = Math.abs(modes[0].angle - (modes[modes.length - 1].angle - 180));
+        if (wrapDiff <= tolerance) {
+          const totalWeight = modes[0].weight + modes[modes.length - 1].weight;
+          modes[0].angle = (modes[0].angle * modes[0].weight +
+                           (modes[modes.length - 1].angle - 180) * modes[modes.length - 1].weight) / totalWeight;
+          modes[0].weight = totalWeight;
+          modes.pop();
+        }
+      }
+
+      return modes.sort((a, b) => b.weight - a.weight);
+    }
+
+    // ============================================================
+    // NEW: CLUSTERING FOR MULTI-MARK DETECTION
+    // ============================================================
+    function clusterIntersections(intersections, epsilon) {
+      if (intersections.length === 0) return [];
+
+      const clusters = [];
+      const visited = new Array(intersections.length).fill(false);
+
+      for (let i = 0; i < intersections.length; i++) {
+        if (visited[i]) continue;
+
+        const cluster = {
+          points: [intersections[i]],
+          indices: [i]
+        };
+        visited[i] = true;
+
+        // Greedy expansion
+        for (let j = i + 1; j < intersections.length; j++) {
+          if (visited[j]) continue;
+
+          // Check if j is within epsilon of any point in cluster
+          let isNear = false;
+          for (const pt of cluster.points) {
+            if (dist(pt, intersections[j]) <= epsilon) {
+              isNear = true;
+              break;
+            }
+          }
+
+          if (isNear) {
+            cluster.points.push(intersections[j]);
+            cluster.indices.push(j);
+            visited[j] = true;
+          }
+        }
+
+        // Compute centroid
+        let cx = 0, cy = 0;
+        for (const pt of cluster.points) {
+          cx += pt.x;
+          cy += pt.y;
+        }
+        cluster.centroid = {
+          x: cx / cluster.points.length,
+          y: cy / cluster.points.length
+        };
+        cluster.count = cluster.points.length;
+
+        clusters.push(cluster);
+      }
+
+      return clusters;
+    }
+
+    // ============================================================
+    // NEW: EXPLAINED INK RATIO FOR EXTRA WRITING DETECTION
+    // ============================================================
+    function calculateExplainedInkRatio(bestCandidate, processedStrokes, segments) {
+      const P = bestCandidate.point;
+      const dirA = bestCandidate.armAngles[0] % 180;
+      const dirB = bestCandidate.armAngles[2] % 180;
+
+      let totalLength = 0;
+      let explainedLength = 0;
+
+      for (const seg of segments) {
+        const mid = segmentMidpoint(seg);
+        const segLen = seg.length;
+        totalLength += segLen;
+
+        // Calculate segment angle
+        const segAngle = Math.atan2(seg.p2.y - seg.p1.y, seg.p2.x - seg.p1.x);
+        const segDir = ((segAngle * 180 / Math.PI) % 180 + 180) % 180;
+
+        // Check alignment with dirA
+        const angleDiffA = Math.min(
+          Math.abs(segDir - dirA),
+          180 - Math.abs(segDir - dirA)
+        );
+        const perpDistA = pointToLineDistance(mid, P, dirA);
+
+        // Check alignment with dirB
+        const angleDiffB = Math.min(
+          Math.abs(segDir - dirB),
+          180 - Math.abs(segDir - dirB)
+        );
+        const perpDistB = pointToLineDistance(mid, P, dirB);
+
+        // Segment is explained if aligned with either direction
+        const explainedByA = (angleDiffA <= CONFIG.ARM_CORRIDOR_ANGLE_TOL_DEG &&
+                             perpDistA <= CONFIG.ARM_CORRIDOR_DIST_PX);
+        const explainedByB = (angleDiffB <= CONFIG.ARM_CORRIDOR_ANGLE_TOL_DEG &&
+                             perpDistB <= CONFIG.ARM_CORRIDOR_DIST_PX);
+
+        if (explainedByA || explainedByB) {
+          explainedLength += segLen;
+        }
+      }
+
+      return totalLength > 0 ? explainedLength / totalLength : 0;
+    }
+
+    // ============================================================
+    // VALIDATION ENGINE - COMPLETE REWRITE WITH PRECEDENCE
+    // ============================================================
+    function validateMark(strokes) {
+      debugData = {
+        allIntersections: [],
+        bestCandidate: null,
+        clusters: [],
+        info: ''
+      };
+
+      // (0) WAITING - Check if empty
+      if (strokes.length === 0) {
+        return {
+          valid: null,
+          label: 'รอการทำเครื่องหมาย',
+          invalid_type: null,
+          reason: '',
+          debug: {}
+        };
+      }
+
+      // Preprocess strokes
+      let totalInkLength = 0;
+      const processedStrokes = [];
+
+      for (const stroke of strokes) {
+        totalInkLength += strokeLength(stroke);
+        let processed = resampleStroke(stroke, CONFIG.RESAMPLE_STEP_PX);
+        processed = simplifyRDP(processed, CONFIG.SIMPLIFY_EPSILON_PX);
+        processedStrokes.push(processed);
+      }
+
+      // (1) BLANK - Check for insufficient ink (dot filter)
+      if (totalInkLength < CONFIG.MIN_TOTAL_INK_LENGTH_PX) {
+        return {
+          valid: false,
+          label: 'บัตรเสีย',
+          invalid_type: 'blank',
+          reason: 'ไม่มีเครื่องหมาย',
+          debug: { totalInkLength }
+        };
+      }
+
+      // Check max points (anti-scribble)
+      let totalPoints = processedStrokes.reduce((sum, s) => sum + s.length, 0);
+      if (totalPoints > CONFIG.MAX_POINTS_TOTAL) {
+        return {
+          valid: false,
+          label: 'บัตรเสีย',
+          invalid_type: 'wrong_symbol',
+          reason: 'ทำเครื่องหมายแบบอื่น',
+          debug: { totalPoints }
+        };
+      }
+
+      // (2) OUTSIDE_BOX - Check if any ink goes outside
+      for (const stroke of processedStrokes) {
+        for (let i = 0; i < stroke.length - 1; i++) {
+          const p1 = stroke[i];
+          const p2 = stroke[i + 1];
+          const d = dist(p1, p2);
+          const steps = Math.ceil(d / CONFIG.RESAMPLE_STEP_PX);
+
+          for (let j = 0; j <= steps; j++) {
+            const t = j / steps;
+            const pt = {
+              x: p1.x + t * (p2.x - p1.x),
+              y: p1.y + t * (p2.y - p1.y)
+            };
+
+            if (!pointInRect(pt, VOTE_BOX, CONFIG.BOX_TOLERANCE_PX)) {
+              return {
+                valid: false,
+                label: 'บัตรเสีย',
+                invalid_type: 'outside_box',
+                reason: 'ล้ำออกนอกกรอบ',
+                debug: { outsidePoint: pt }
+              };
+            }
+          }
+        }
+      }
+
+      // Build segments and find intersections
+      const segments = buildSegments(processedStrokes);
+      const intersections = findAllIntersections(segments);
+
+      debugData.allIntersections = intersections;
+
+      // (4) NO_CROSS - Check if no intersections found
+      if (intersections.length === 0) {
+        return {
+          valid: false,
+          label: 'บัตรเสีย',
+          invalid_type: 'no_cross',
+          reason: 'ไม่มีจุดตัดแบบกากบาท',
+          debug: { intersections: 0 }
+        };
+      }
+
+      // Cluster intersections for multi-mark detection
+      const clusters = clusterIntersections(intersections, CONFIG.CROSS_CLUSTER_EPS_PX);
+      debugData.clusters = clusters;
+
+      // Analyze each cluster to determine if it's a valid cross center
+      for (const cluster of clusters) {
+        let hasValidCross = false;
+
+        for (const inter of cluster.points) {
+          const result = measure4ArmExtension(
+            { x: inter.x, y: inter.y },
+            inter.seg1,
+            inter.seg2,
+            processedStrokes
+          );
+
+          if (result.valid) {
+            hasValidCross = true;
+            break;
+          }
+        }
+
+        cluster.isCrossValid = hasValidCross;
+
+        // NEW: Count unique strokes across all intersections in this cluster
+        const uniqueStrokesInCluster = new Set();
+        for (const inter of cluster.points) {
+          if (inter.seg1 && inter.seg1.strokeIndex !== undefined) {
+            uniqueStrokesInCluster.add(inter.seg1.strokeIndex);
+          }
+          if (inter.seg2 && inter.seg2.strokeIndex !== undefined) {
+            uniqueStrokesInCluster.add(inter.seg2.strokeIndex);
+          }
+        }
+        cluster.strokesAtCluster = uniqueStrokesInCluster.size;
+      }
+
+      // Count cross-valid clusters that are far apart
+      const validClusters = clusters.filter(c => c.isCrossValid);
+
+      // Calculate adaptive scale reference based on average arm length of valid crosses
+      let scaleReference = 60;  // Default fallback (typical arm length)
+
+      if (validClusters.length > 0) {
+        // Collect all valid cross candidates to calculate scale
+        const validCrossArmLengths = [];
+
+        for (const cluster of validClusters) {
+          for (const inter of cluster.points) {
+            const result = measure4ArmExtension(
+              { x: inter.x, y: inter.y },
+              inter.seg1,
+              inter.seg2,
+              processedStrokes
+            );
+
+            if (result.valid) {
+              // Average of all 4 arm extensions for this cross
+              const avgArmLength = Object.values(result.extensions)
+                .reduce((sum, len) => sum + len, 0) / 4;
+              validCrossArmLengths.push(avgArmLength);
+            }
+          }
+        }
+
+        if (validCrossArmLengths.length > 0) {
+          // Use median to be robust against outliers
+          validCrossArmLengths.sort((a, b) => a - b);
+          const mid = Math.floor(validCrossArmLengths.length / 2);
+          scaleReference = validCrossArmLengths.length % 2 === 0
+            ? (validCrossArmLengths[mid - 1] + validCrossArmLengths[mid]) / 2
+            : validCrossArmLengths[mid];
+        }
+      }
+
+      // (3) MULTI_MARK / INTENTIONAL INVALIDATION - Scale-adaptive cluster separation check
+      if (validClusters.length >= 2) {
+        // Calculate adaptive thresholds based on cross scale
+        const retraceThreshold = scaleReference * CONFIG.RETRACE_TOLERANCE_RATIO;
+        const intentionalThreshold = scaleReference * CONFIG.INTENTIONAL_MIN_RATIO;
+        const multiMarkThreshold = scaleReference * CONFIG.MULTI_MARK_MIN_RATIO;
+
+        let hasIntentionalInvalidation = false;
+        let hasMultiMark = false;
+
+        for (let i = 0; i < validClusters.length; i++) {
+          for (let j = i + 1; j < validClusters.length; j++) {
+            const d = dist(validClusters[i].centroid, validClusters[j].centroid);
+
+            if (d >= multiMarkThreshold) {
+              hasMultiMark = true;
+              break;
+            } else if (d >= intentionalThreshold) {
+              hasIntentionalInvalidation = true;
+              // Don't break - keep checking for multi-mark (higher priority)
+            }
+            // else: d < intentionalThreshold means retracing (valid, continue)
+          }
+          if (hasMultiMark) break;
+        }
+
+        // Multi-mark takes precedence (more severe violation)
+        if (hasMultiMark) {
+          return {
+            valid: false,
+            label: 'บัตรเสีย',
+            invalid_type: 'multi_mark',
+            reason: 'ทำเครื่องหมายมากกว่า 1 จุด',
+            debug: {
+              validClusters: validClusters.length,
+              scaleReference: scaleReference.toFixed(1),
+              threshold: multiMarkThreshold.toFixed(1)
+            }
+          };
+        }
+
+        // Intentional invalidation (medium distance relative to cross size)
+        if (hasIntentionalInvalidation) {
+          return {
+            valid: false,
+            label: 'บัตรเสีย',
+            invalid_type: 'wrong_symbol',
+            reason: 'ทำเครื่องหมายเพิ่มเติมเพื่อให้บัตรเสีย',
+            debug: {
+              validClusters: validClusters.length,
+              scaleReference: scaleReference.toFixed(1),
+              threshold: intentionalThreshold.toFixed(1)
+            }
+          };
+        }
+
+        // All clusters very close (< intentionalThreshold) - treat as single cross from retracing
+        // Continue to next validation steps...
+      }
+
+      // Find all cross candidates across all intersections
+      const crossCandidates = [];
+
+      for (const inter of intersections) {
+        const result = measure4ArmExtension(
+          { x: inter.x, y: inter.y },
+          inter.seg1,
+          inter.seg2,
+          processedStrokes
+        );
+
+        if (result.valid) {
+          // NEW: Find which cluster this intersection belongs to
+          let strokesAtCluster = 2;  // Default: just the 2 strokes at this intersection
+          for (const cluster of clusters) {
+            if (cluster.points.includes(inter)) {
+              strokesAtCluster = cluster.strokesAtCluster;
+              break;
+            }
+          }
+
+          crossCandidates.push({
+            point: { x: inter.x, y: inter.y },
+            minExtension: result.minExtension,
+            extensions: result.extensions,
+            armAngles: result.armAngles,
+            strokesAtIntersection: strokesAtCluster  // NEW: Use cluster stroke count
+          });
+        }
+      }
+
+      // (5) WRONG_SYMBOL - Part A: No valid cross candidates
+      if (crossCandidates.length === 0) {
+        return {
+          valid: false,
+          label: 'บัตรเสีย',
+          invalid_type: 'wrong_symbol',
+          reason: 'ทำเครื่องหมายแบบอื่น',
+          debug: { crossCandidates: 0 }
+        };
+      }
+
+      // Find best candidate (highest minExtension)
+      const bestCandidate = crossCandidates.reduce((best, curr) =>
+        curr.minExtension > best.minExtension ? curr : best
+      );
+
+      debugData.bestCandidate = bestCandidate;
+
+      // (5) WRONG_SYMBOL - Part B: Global topology check (star rejection)
+      const branchCount = countGlobalBranches(bestCandidate.point, processedStrokes);
+
+      debugData.info = `Intersections: ${intersections.length}\n` +
+                       `Clusters: ${clusters.length} (${validClusters.length} valid)\n` +
+                       `Cross candidates: ${crossCandidates.length}\n` +
+                       `Best min arm: ${bestCandidate.minExtension.toFixed(1)}px\n` +
+                       `Strokes at center: ${bestCandidate.strokesAtIntersection}\n` +
+                       `Global branches: ${branchCount}`;
+
+      // NEW: Check for multi-line star (3+ strokes meeting at center)
+      if (bestCandidate.strokesAtIntersection >= 3) {
+        return {
+          valid: false,
+          label: 'บัตรเสีย',
+          invalid_type: 'wrong_symbol',
+          reason: 'ทำเครื่องหมายแบบอื่น',
+          debug: {
+            strokesAtIntersection: bestCandidate.strokesAtIntersection,
+            branchCount,
+            reason: 'multi_line_star'
+          }
+        };
+      }
+
+      // NEW: Check for minimum angular diversity
+      if (branchCount < 2) {
+        return {
+          valid: false,
+          label: 'บัตรเสีย',
+          invalid_type: 'wrong_symbol',
+          reason: 'ไม่มีรูปร่างกากบาท',
+          debug: { branchCount }
+        };
+      }
+
+      // NEW: Enhanced branch count check with stroke-count and balance validation
+      if (branchCount > 2) {
+        // Special case: branchCount = 3 could be natural loop OR star
+        if (branchCount === 3) {
+          // TIER 1: Check stroke count first (natural loop detection)
+          if (strokes.length <= 2) {
+            // 1-2 strokes with 3 branches → Natural loop at intersection → ALLOW
+            // This is a valid drawing style where the loop creates extra angular directions
+            // Will be further validated by explained ink ratio (55% for 1 stroke, 62% for 2 strokes)
+            debugData.info += `\nStroke count: ${strokes.length} (natural loop allowed)`;
+          } else {
+            // TIER 2: 3+ strokes with 3 branches → Check arm balance
+            // Could be intentional star OR cross with separate emphasis mark
+            const minArm = bestCandidate.minExtension;
+            const maxArm = Math.max(...bestCandidate.extensions);
+            const armBalanceRatio = minArm / maxArm;
+
+            debugData.info += `\nStroke count: ${strokes.length}, Arm balance: ${(armBalanceRatio * 100).toFixed(1)}%`;
+
+            // If arms are well-balanced (ratio >= 0.70), it's a strong cross with emphasis
+            if (armBalanceRatio < 0.70) {
+              // Imbalanced arms with 3+ strokes → likely intentional star
+              return {
+                valid: false,
+                label: 'บัตรเสีย',
+                invalid_type: 'wrong_symbol',
+                reason: 'ทำเครื่องหมายแบบอื่น',
+                debug: {
+                  branchCount,
+                  strokeCount: strokes.length,
+                  armBalanceRatio,
+                  reason: 'imbalanced_arms'
+                }
+              };
+            }
+            // else: balanced arms with 3+ strokes → continue to ink ratio check
+          }
+        } else {
+          // branchCount >= 4: Too many branches, definitely not a simple cross
+          return {
+            valid: false,
+            label: 'บัตรเสีย',
+            invalid_type: 'wrong_symbol',
+            reason: 'ทำเครื่องหมายแบบอื่น',
+            debug: { branchCount }
+          };
+        }
+      }
+
+      // (6) EXTRA_WRITING - Adaptive explained ink ratio check based on stroke count
+      // Calculate adaptive threshold
+      let explainedInkThreshold = CONFIG.MIN_EXPLAINED_INK_RATIO;  // Default: 70% for 3+ strokes
+
+      if (strokes.length === 1) {
+        // Single stroke: lenient (allows natural loops/curves)
+        explainedInkThreshold = CONFIG.MIN_EXPLAINED_INK_RATIO_SINGLE;  // 55%
+      } else if (strokes.length === 2) {
+        // Two strokes: moderate (standard crosses)
+        explainedInkThreshold = CONFIG.MIN_EXPLAINED_INK_RATIO_DOUBLE;  // 62%
+      }
+      // else: 3+ strokes use default 70% (strict - catches extra writing)
+
+      const explainedRatio = calculateExplainedInkRatio(bestCandidate, processedStrokes, segments);
+
+      debugData.info += `\nExplained ratio: ${(explainedRatio * 100).toFixed(1)}%`;
+
+      if (explainedRatio < explainedInkThreshold) {
+        return {
+          valid: false,
+          label: 'บัตรเสีย',
+          invalid_type: 'extra_writing',
+          reason: 'มีสัญลักษณ์หรือข้อความเพิ่มเติม',
+          debug: {
+            explainedRatio,
+            threshold: explainedInkThreshold,
+            strokeCount: strokes.length
+          }
+        };
+      }
+
+      // (7) VALID - All checks passed
+      return {
+        valid: true,
+        label: 'บัตรดี',
+        invalid_type: null,
+        reason: '',
+        debug: {
+          intersections: intersections.length,
+          crossCandidates: crossCandidates.length,
+          minExtension: bestCandidate.minExtension,
+          branchCount,
+          explainedRatio
+        }
+      };
+    }
+
+    // ============================================================
+    // UI UPDATE
+    // ============================================================
+    function updateResult(result) {
+      resultBadge.className = 'result-badge';
+
+      if (result.valid === null) {
+        resultBadge.classList.add('neutral');
+        resultBadge.textContent = result.label || 'รอการทำเครื่องหมาย';
+        resultReason.textContent = '';
+      } else if (result.valid) {
+        resultBadge.classList.add('valid');
+        resultBadge.textContent = result.label || 'บัตรดี';
+        resultReason.textContent = '';
+      } else {
+        resultBadge.classList.add('invalid');
+        resultBadge.textContent = result.label || 'บัตรเสีย';
+        resultReason.textContent = result.reason;
+      }
+
+      if (debugToggle.checked) {
+        redrawAll();
+      }
+    }
+
+    function scheduleEvaluation() {
+      if (evaluationTimer) {
+        clearTimeout(evaluationTimer);
+      }
+
+      evaluationTimer = setTimeout(() => {
+        const result = validateMark(strokes);
+
+        // Store validation result globally for debugging
+        window.lastValidation = result;
+
+        // Log validation result with debug info if available
+        if (result.debug) {
+          console.log('Validation result:', {
+            valid: result.valid,
+            invalid_type: result.invalid_type,
+            reason: result.reason,
+            debug: result.debug
+          });
+        }
+
+        updateResult(result);
+      }, CONFIG.EVALUATION_DEBOUNCE_MS);
+    }
+
+    // ============================================================
+    // EVENT LISTENERS
+    // ============================================================
+    canvas.addEventListener('pointerdown', handlePointerDown);
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('pointerup', handlePointerUp);
+    canvas.addEventListener('pointercancel', handlePointerCancel);
+
+    clearBtn.addEventListener('click', () => {
+      strokes = [];
+      currentStroke = null;
+      debugData = null;
+      clearCanvas();
+      updateResult({ valid: null, label: 'รอการทำเครื่องหมาย', invalid_type: null, reason: '' });
+    });
+
+    debugToggle.addEventListener('change', () => {
+      redrawAll();
+    });
+
+    // ============================================================
+    // INITIALIZATION
+    // ============================================================
+    clearCanvas();
+  </script>
+</body>
+</html>
