@@ -215,15 +215,19 @@
 
       // Global topology (star rejection)
       TOPOLOGY_ANALYSIS_RADIUS_PX: 60,
-      MAX_BRANCHES: 3,                    // Adjusted for X/+ (2-3 direction modes)
+      MAX_BRANCHES: 2,                    // Proper X/+ cross has exactly 2 angular directions
       BRANCH_ANGLE_CLUSTER_TOL_DEG: 30,
 
-      // NEW: Multi-mark detection
-      CROSS_CLUSTER_EPS_PX: 26,           // Clustering radius for intersection points
-      MULTI_MARK_MIN_SEPARATION_PX: 80,   // Min distance between distinct selection centers
+      // NEW: Multi-mark detection (scale-adaptive)
+      CROSS_CLUSTER_EPS_PX: 26,                    // Initial clustering radius for intersection points
+      RETRACE_TOLERANCE_RATIO: 0.12,              // Max 12% of arm length = retracing (tremor/dry pen)
+      INTENTIONAL_MIN_RATIO: 0.20,                 // Min 20% of arm length = intentional invalidation
+      MULTI_MARK_MIN_RATIO: 1.0,                   // Min 100% of arm length = distinct marks
 
-      // NEW: Extra writing detection
-      MIN_EXPLAINED_INK_RATIO: 0.70,      // Minimum fraction of ink explained by cross model (raised from 0.62 to catch extra strokes)
+      // NEW: Extra writing detection (stroke-count adaptive)
+      MIN_EXPLAINED_INK_RATIO: 0.70,              // Default for multi-stroke (3+)
+      MIN_EXPLAINED_INK_RATIO_SINGLE: 0.55,       // Lenient for 1-stroke with loops
+      MIN_EXPLAINED_INK_RATIO_DOUBLE: 0.62,       // Moderate for 2-stroke
 
       EVALUATION_DEBOUNCE_MS: 450
     };
@@ -1024,35 +1028,116 @@
         }
 
         cluster.isCrossValid = hasValidCross;
+
+        // NEW: Count unique strokes across all intersections in this cluster
+        const uniqueStrokesInCluster = new Set();
+        for (const inter of cluster.points) {
+          if (inter.seg1 && inter.seg1.strokeIndex !== undefined) {
+            uniqueStrokesInCluster.add(inter.seg1.strokeIndex);
+          }
+          if (inter.seg2 && inter.seg2.strokeIndex !== undefined) {
+            uniqueStrokesInCluster.add(inter.seg2.strokeIndex);
+          }
+        }
+        cluster.strokesAtCluster = uniqueStrokesInCluster.size;
       }
 
       // Count cross-valid clusters that are far apart
       const validClusters = clusters.filter(c => c.isCrossValid);
 
-      // (3) MULTI_MARK - Check for multiple distinct selection centers
+      // Calculate adaptive scale reference based on average arm length of valid crosses
+      let scaleReference = 60;  // Default fallback (typical arm length)
+
+      if (validClusters.length > 0) {
+        // Collect all valid cross candidates to calculate scale
+        const validCrossArmLengths = [];
+
+        for (const cluster of validClusters) {
+          for (const inter of cluster.points) {
+            const result = measure4ArmExtension(
+              { x: inter.x, y: inter.y },
+              inter.seg1,
+              inter.seg2,
+              processedStrokes
+            );
+
+            if (result.valid) {
+              // Average of all 4 arm extensions for this cross
+              const avgArmLength = Object.values(result.extensions)
+                .reduce((sum, len) => sum + len, 0) / 4;
+              validCrossArmLengths.push(avgArmLength);
+            }
+          }
+        }
+
+        if (validCrossArmLengths.length > 0) {
+          // Use median to be robust against outliers
+          validCrossArmLengths.sort((a, b) => a - b);
+          const mid = Math.floor(validCrossArmLengths.length / 2);
+          scaleReference = validCrossArmLengths.length % 2 === 0
+            ? (validCrossArmLengths[mid - 1] + validCrossArmLengths[mid]) / 2
+            : validCrossArmLengths[mid];
+        }
+      }
+
+      // (3) MULTI_MARK / INTENTIONAL INVALIDATION - Scale-adaptive cluster separation check
       if (validClusters.length >= 2) {
-        let hasSeparatedCenters = false;
+        // Calculate adaptive thresholds based on cross scale
+        const retraceThreshold = scaleReference * CONFIG.RETRACE_TOLERANCE_RATIO;
+        const intentionalThreshold = scaleReference * CONFIG.INTENTIONAL_MIN_RATIO;
+        const multiMarkThreshold = scaleReference * CONFIG.MULTI_MARK_MIN_RATIO;
+
+        let hasIntentionalInvalidation = false;
+        let hasMultiMark = false;
 
         for (let i = 0; i < validClusters.length; i++) {
           for (let j = i + 1; j < validClusters.length; j++) {
             const d = dist(validClusters[i].centroid, validClusters[j].centroid);
-            if (d >= CONFIG.MULTI_MARK_MIN_SEPARATION_PX) {
-              hasSeparatedCenters = true;
+
+            if (d >= multiMarkThreshold) {
+              hasMultiMark = true;
               break;
+            } else if (d >= intentionalThreshold) {
+              hasIntentionalInvalidation = true;
+              // Don't break - keep checking for multi-mark (higher priority)
             }
+            // else: d < intentionalThreshold means retracing (valid, continue)
           }
-          if (hasSeparatedCenters) break;
+          if (hasMultiMark) break;
         }
 
-        if (hasSeparatedCenters) {
+        // Multi-mark takes precedence (more severe violation)
+        if (hasMultiMark) {
           return {
             valid: false,
             label: 'บัตรเสีย',
             invalid_type: 'multi_mark',
             reason: 'ทำเครื่องหมายมากกว่า 1 จุด',
-            debug: { validClusters: validClusters.length }
+            debug: {
+              validClusters: validClusters.length,
+              scaleReference: scaleReference.toFixed(1),
+              threshold: multiMarkThreshold.toFixed(1)
+            }
           };
         }
+
+        // Intentional invalidation (medium distance relative to cross size)
+        if (hasIntentionalInvalidation) {
+          return {
+            valid: false,
+            label: 'บัตรเสีย',
+            invalid_type: 'wrong_symbol',
+            reason: 'ทำเครื่องหมายเพิ่มเติมเพื่อให้บัตรเสีย',
+            debug: {
+              validClusters: validClusters.length,
+              scaleReference: scaleReference.toFixed(1),
+              threshold: intentionalThreshold.toFixed(1)
+            }
+          };
+        }
+
+        // All clusters very close (< intentionalThreshold) - treat as single cross from retracing
+        // Continue to next validation steps...
       }
 
       // Find all cross candidates across all intersections
@@ -1067,11 +1152,21 @@
         );
 
         if (result.valid) {
+          // NEW: Find which cluster this intersection belongs to
+          let strokesAtCluster = 2;  // Default: just the 2 strokes at this intersection
+          for (const cluster of clusters) {
+            if (cluster.points.includes(inter)) {
+              strokesAtCluster = cluster.strokesAtCluster;
+              break;
+            }
+          }
+
           crossCandidates.push({
             point: { x: inter.x, y: inter.y },
             minExtension: result.minExtension,
             extensions: result.extensions,
-            armAngles: result.armAngles
+            armAngles: result.armAngles,
+            strokesAtIntersection: strokesAtCluster  // NEW: Use cluster stroke count
           });
         }
       }
@@ -1101,30 +1196,112 @@
                        `Clusters: ${clusters.length} (${validClusters.length} valid)\n` +
                        `Cross candidates: ${crossCandidates.length}\n` +
                        `Best min arm: ${bestCandidate.minExtension.toFixed(1)}px\n` +
+                       `Strokes at center: ${bestCandidate.strokesAtIntersection}\n` +
                        `Global branches: ${branchCount}`;
 
-      if (branchCount > CONFIG.MAX_BRANCHES) {
+      // NEW: Check for multi-line star (3+ strokes meeting at center)
+      if (bestCandidate.strokesAtIntersection >= 3) {
         return {
           valid: false,
           label: 'บัตรเสีย',
           invalid_type: 'wrong_symbol',
           reason: 'ทำเครื่องหมายแบบอื่น',
+          debug: {
+            strokesAtIntersection: bestCandidate.strokesAtIntersection,
+            branchCount,
+            reason: 'multi_line_star'
+          }
+        };
+      }
+
+      // NEW: Check for minimum angular diversity
+      if (branchCount < 2) {
+        return {
+          valid: false,
+          label: 'บัตรเสีย',
+          invalid_type: 'wrong_symbol',
+          reason: 'ไม่มีรูปร่างกากบาท',
           debug: { branchCount }
         };
       }
 
-      // (6) EXTRA_WRITING - Check explained ink ratio
+      // NEW: Enhanced branch count check with stroke-count and balance validation
+      if (branchCount > 2) {
+        // Special case: branchCount = 3 could be natural loop OR star
+        if (branchCount === 3) {
+          // TIER 1: Check stroke count first (natural loop detection)
+          if (strokes.length <= 2) {
+            // 1-2 strokes with 3 branches → Natural loop at intersection → ALLOW
+            // This is a valid drawing style where the loop creates extra angular directions
+            // Will be further validated by explained ink ratio (55% for 1 stroke, 62% for 2 strokes)
+            debugData.info += `\nStroke count: ${strokes.length} (natural loop allowed)`;
+          } else {
+            // TIER 2: 3+ strokes with 3 branches → Check arm balance
+            // Could be intentional star OR cross with separate emphasis mark
+            const minArm = bestCandidate.minExtension;
+            const maxArm = Math.max(...bestCandidate.extensions);
+            const armBalanceRatio = minArm / maxArm;
+
+            debugData.info += `\nStroke count: ${strokes.length}, Arm balance: ${(armBalanceRatio * 100).toFixed(1)}%`;
+
+            // If arms are well-balanced (ratio >= 0.70), it's a strong cross with emphasis
+            if (armBalanceRatio < 0.70) {
+              // Imbalanced arms with 3+ strokes → likely intentional star
+              return {
+                valid: false,
+                label: 'บัตรเสีย',
+                invalid_type: 'wrong_symbol',
+                reason: 'ทำเครื่องหมายแบบอื่น',
+                debug: {
+                  branchCount,
+                  strokeCount: strokes.length,
+                  armBalanceRatio,
+                  reason: 'imbalanced_arms'
+                }
+              };
+            }
+            // else: balanced arms with 3+ strokes → continue to ink ratio check
+          }
+        } else {
+          // branchCount >= 4: Too many branches, definitely not a simple cross
+          return {
+            valid: false,
+            label: 'บัตรเสีย',
+            invalid_type: 'wrong_symbol',
+            reason: 'ทำเครื่องหมายแบบอื่น',
+            debug: { branchCount }
+          };
+        }
+      }
+
+      // (6) EXTRA_WRITING - Adaptive explained ink ratio check based on stroke count
+      // Calculate adaptive threshold
+      let explainedInkThreshold = CONFIG.MIN_EXPLAINED_INK_RATIO;  // Default: 70% for 3+ strokes
+
+      if (strokes.length === 1) {
+        // Single stroke: lenient (allows natural loops/curves)
+        explainedInkThreshold = CONFIG.MIN_EXPLAINED_INK_RATIO_SINGLE;  // 55%
+      } else if (strokes.length === 2) {
+        // Two strokes: moderate (standard crosses)
+        explainedInkThreshold = CONFIG.MIN_EXPLAINED_INK_RATIO_DOUBLE;  // 62%
+      }
+      // else: 3+ strokes use default 70% (strict - catches extra writing)
+
       const explainedRatio = calculateExplainedInkRatio(bestCandidate, processedStrokes, segments);
 
       debugData.info += `\nExplained ratio: ${(explainedRatio * 100).toFixed(1)}%`;
 
-      if (explainedRatio < CONFIG.MIN_EXPLAINED_INK_RATIO) {
+      if (explainedRatio < explainedInkThreshold) {
         return {
           valid: false,
           label: 'บัตรเสีย',
           invalid_type: 'extra_writing',
           reason: 'มีสัญลักษณ์หรือข้อความเพิ่มเติม',
-          debug: { explainedRatio }
+          debug: {
+            explainedRatio,
+            threshold: explainedInkThreshold,
+            strokeCount: strokes.length
+          }
         };
       }
 
@@ -1176,6 +1353,20 @@
 
       evaluationTimer = setTimeout(() => {
         const result = validateMark(strokes);
+
+        // Store validation result globally for debugging
+        window.lastValidation = result;
+
+        // Log validation result with debug info if available
+        if (result.debug) {
+          console.log('Validation result:', {
+            valid: result.valid,
+            invalid_type: result.invalid_type,
+            reason: result.reason,
+            debug: result.debug
+          });
+        }
+
         updateResult(result);
       }, CONFIG.EVALUATION_DEBOUNCE_MS);
     }
